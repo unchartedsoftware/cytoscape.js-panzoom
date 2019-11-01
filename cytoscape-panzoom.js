@@ -383,8 +383,7 @@ SOFTWARE.
             var min = 0 + padding;
             var max = $slider.height() - $sliderHandle.height() - 2*padding;
             // if evt is touch
-            var top = (isMouseEvent(evt) ? evt.pageY : evt.touches[0].clientY) - $slider.offset().top - handleOffset;
-            // var top = evt.pageY - $slider.offset().top - handleOffset;
+            var top = (isMouseEvent(evt) ? evt.pageY : evt.touches[0].pageY) - $slider.offset().top - handleOffset;
 
             // constrain to slider bounds
             if( top < min ){ top = min }
@@ -465,11 +464,9 @@ SOFTWARE.
 
               if (now > lastMove + 10) {
                 lastMove = now;
-              } else {
-                return false;
+                setSliderFromMouse(tmEvt, 0);
               }
-              
-              setSliderFromMouse(tmEvt, 0);
+
               return false;
             });
             windowBind('touchend', function() {
