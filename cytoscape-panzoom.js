@@ -191,10 +191,22 @@ SOFTWARE.
           // functions for calculating panning
           ////////////////////////////////////
 
+          function isMouseEvent(e) {
+            return e.type.substring(0, 5) === 'mouse';
+          }
+
           function handle2pan(e){
-            var v = {
-              x: e.originalEvent.pageX - $panner.offset().left - $panner.width()/2,
-              y: e.originalEvent.pageY - $panner.offset().top - $panner.height()/2
+            var v;
+            if (isMouseEvent(e)) {
+              v = {
+                x: e.originalEvent.pageX - $panner.offset().left - $panner.width()/2,
+                y: e.originalEvent.pageY - $panner.offset().top - $panner.height()/2
+              }
+            } else {
+              v = {
+                x: e.originalEvent.touches[0].pageX - $panner.offset().left - $panner.width()/2,
+                y: e.originalEvent.touches[0].pageY - $panner.offset().top - $panner.height()/2
+              }
             }
 
             var r = options.panDragAreaSize;
@@ -223,9 +235,21 @@ SOFTWARE.
             return vnorm;
           }
 
-          function donePanning(){
+          function donePanning(event){
             clearInterval(panInterval);
-            windowUnbind("mousemove", handler);
+
+            switch (event.type) {
+              case "mouseup":
+                windowUnbind("mousemove", handler);
+                break;
+              case "touchend":
+                windowUnbind("touchmove", handler);
+                break;
+              case "blur":
+                windowUnbind("mousemove", handler);
+                windowUnbind("touchmove", handler);
+                break;
+            }
 
             $pIndicator.hide();
           }
@@ -311,12 +335,26 @@ SOFTWARE.
             windowBind("mousemove", handler);
           });
 
-          $pHandle.bind("mouseup", function(){
-            donePanning();
+          $pHandle.bind("touchstart", function(e){
+            handler(e);
+
+            windowBind("touchmove", handler);
           });
 
-          windowBind("mouseup blur", function(){
-            donePanning();
+          $pHandle.bind("mouseup", function(e){
+            donePanning(e);
+          });
+
+          $pHandle.bind("touchend", function(e) {
+            donePanning(e);
+          });
+
+          windowBind("mouseup blur", function(e){
+            donePanning(e);
+          });
+
+          windowBind("touchend blur", function(e) {
+            donePanning(e);
           });
 
 
@@ -326,6 +364,10 @@ SOFTWARE.
 
           $slider.bind('mousedown', function(){
             return false; // so we don't pan close to the slider handle
+          });
+
+          $slider.bind("touchstart", function() {
+            return false;
           });
 
           var sliderVal;
@@ -340,7 +382,8 @@ SOFTWARE.
             var padding = sliderPadding;
             var min = 0 + padding;
             var max = $slider.height() - $sliderHandle.height() - 2*padding;
-            var top = evt.pageY - $slider.offset().top - handleOffset;
+            // if evt is touch
+            var top = (isMouseEvent(evt) ? evt.pageY : evt.touches[0].pageY) - $slider.offset().top - handleOffset;
 
             // constrain to slider bounds
             if( top < min ){ top = min }
@@ -381,7 +424,7 @@ SOFTWARE.
 
             var lastMove = 0;
             windowBind('mousemove', sliderMmoveHandler = function( mmEvt ){
-              var now = +new Date;
+              var now = mmEvt.timeStamp;
 
               // throttle the zooms every 10 ms so we don't call zoom too often and cause lag
               if( now > lastMove + 10 ){
@@ -407,12 +450,49 @@ SOFTWARE.
             return false;
           });
 
+          sliding = false;
+          var sliderTdownHandler, sliderTmoveHandler;
+          $sliderHandle.bind('touchstart', sliderTdownHandler = function(tsEvt) { // factor code with aboves
+            sliding = true;
+
+            startZooming();
+            $sliderHandle.addClass("active");
+
+            var lastMove = 0;
+            windowBind('touchmove', sliderTmoveHandler = function(tmEvt) {
+              var now = tmEvt.timeStamp;
+
+              if (now > lastMove + 10) {
+                lastMove = now;
+                setSliderFromMouse(tmEvt, 0);
+              }
+
+              return false;
+            });
+            windowBind('touchend', function() {
+              windowUnbind('touchmove', sliderTmoveHandler);
+              sliding = false;
+
+              $sliderHandle.removeClass("active");
+              endZooming();
+            });
+            
+            return false;
+          });
+
           $slider.bind('mousedown', function(e){
             if( e.target !== $sliderHandle[0] ){
               sliderMdownHandler(e);
               setSliderFromMouse(e);
             }
           });
+
+          $slider.bind('touchstart', function(e) {
+            if (e.target !== $sliderHandle[0]) {
+              sliderTdownHandler(e);
+              setSliderFromMouse(e);
+            }
+          })
 
           function positionSliderFromZoom(){
             var z = cyRef.zoom();
@@ -481,7 +561,7 @@ SOFTWARE.
               e.preventDefault();
               e.stopPropagation();
 
-              if( e.button != 0 ){
+              if(e.button != 0 ){
                 return;
               }
 
@@ -497,9 +577,7 @@ SOFTWARE.
                   lvl = options.maxZoom;
                 }
 
-                if( (lvl == options.maxZoom && zoom == options.maxZoom) ||
-                  (lvl == options.minZoom && zoom == options.minZoom)
-                ){
+                if(lvl === zoom && (lvl === options.maxZoom || lvl === options.minZoom)){
                   return;
                 }
 
@@ -513,7 +591,37 @@ SOFTWARE.
               return false;
             });
 
+            $button.bind("touchstart", function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+
+              var doZoom = function() {
+                var zoom = cyRef.zoom();
+                var lvl = cyRef.zoom() * factor;
+
+                if (lvl < options.minZoom) {
+                  lvl = options.minZoom;
+                }
+                if (lvl > options.maxZoom) {
+                  lvl = options.maxZoom;
+                }
+                if (lvl === zoom && (lvl === options.maxZoom || lvl === options.minZoom)) {
+                  return;
+                }
+                zoomTo(lvl);
+              };
+              startZooming();
+              doZoom();
+              zoomInterval = setInterval(doZoom, options.zoomDelay);
+              return false;
+            });
+
             windowBind("mouseup blur", function(){
+              clearInterval(zoomInterval);
+              endZooming();
+            });
+
+            windowBind("touchend blur", function() {
               clearInterval(zoomInterval);
               endZooming();
             });
@@ -552,8 +660,31 @@ SOFTWARE.
             return false;
           });
 
+          $reset.bind("touchstart", function(e) {
 
+            var elesToFit = options.fitSelector?cyRef.elements(options.fitSelector):cyRef.elements();
 
+            if (elesToFit.size() === 0) {
+              cyRef.reset();
+            } else {
+              var animateOnFit = typeof options.animateOnFit === 'function' ? options.animateOnFit.call() : options.animateOnFit;
+              if (animateOnFit) {
+                cyRef.animate({
+                  fit: {
+                    eles: elesToFit,
+                    padding: options.fitPadding
+                  }
+                }, {
+                  duration: options.fitAnimationDuring
+                });
+              }
+              else {
+                cyRef.fit(elesToFit, options.fitPadding);
+              }
+            }
+
+            return false;
+          });
         });
       }
     };
